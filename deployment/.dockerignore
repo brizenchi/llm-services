@@ -1,0 +1,4 @@
+deployment/.env
+deployment/.env_test
+.env
+deployment/logs

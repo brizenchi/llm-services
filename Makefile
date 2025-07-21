@@ -14,7 +14,7 @@ LDFLAGS := -X 'main.BuildTime=$(BUILD_TIME)' \
            -X 'main.CommitID=$(COMMIT_SHA1)' \
            -w -s
 
-.PHONY: all build clean test lint docker-build docker-push run stop restart logs help
+.PHONY: all build clean test lint build docker-push run stop restart logs help
 
 # 默认目标
 all: build
@@ -44,11 +44,11 @@ dev: build run
 
 # 测试环境相关命令
 test: export ENV=test
-test: build docker-build docker-push run
+test: build build docker-push run
 
 # 生产环境相关命令
 prod: export ENV=prod
-prod: test docker-build docker-push
+prod: test build docker-push
 
 
 # 构建 Docker 镜像
@@ -106,7 +106,7 @@ deploy:
 		git pull origin main && \
 		git checkout main && \
 		sudo make backup && \
-		sudo make docker-build && \
+		sudo make build && \
 		sudo make remove && \
 		sudo make run'
 
@@ -127,7 +127,7 @@ help:
 	@echo "  make clean          - Clean build files"
 	@echo "  make test           - Run tests"
 	@echo "  make lint           - Run linter"
-	@echo "  make docker-build   - Build Docker image"
+	@echo "  make build   - Build Docker image"
 	@echo "  make docker-push    - Push Docker image"
 	@echo "  make run            - Start services"
 	@echo "  make stop           - Stop services"

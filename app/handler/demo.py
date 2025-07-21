@@ -1,8 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import logging
 import os
+import json
 from pkg.core.result.result import success_result, error_result
 from pkg.service.demo_service import get_demo_service, initialize_demo_service
 
@@ -21,6 +23,13 @@ class MultiTurnChatRequest(BaseModel):
     """多轮对话请求模型"""
     messages: List[Dict[str, str]]  # [{"role": "user|assistant", "content": "..."}]
     model: str = "gemini-2.5-flash"
+
+
+class StreamChatRequest(BaseModel):
+    """流式聊天请求模型"""
+    message: str
+    model: str = "gemini-2.5-flash"
+    stream: bool = True
 
 
 async def get_initialized_demo_service():
@@ -75,7 +84,9 @@ async def demo_info():
                 "GET /": "Get demo info",
                 "GET /models": "Get available models",
                 "POST /chat": "Simple chat with Gemini",
-                "POST /chat/multi-turn": "Multi-turn conversation with Gemini"
+                "POST /chat/multi-turn": "Multi-turn conversation with Gemini",
+                "POST /chat/stream": "Streaming chat with Gemini (SSE)",
+                "POST /chat/stream/multi-turn": "Streaming multi-turn conversation with Gemini (SSE)"
             }
         }
     )
@@ -172,6 +183,119 @@ async def multi_turn_chat(
     except Exception as e:
         logger.error(f"Multi-turn chat failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/stream")
+async def stream_chat(
+    request: StreamChatRequest,
+    service = Depends(get_initialized_demo_service)
+):
+    """
+    流式聊天接口
+    
+    Args:
+        request: 流式聊天请求，包含消息和模型名称
+        
+    Returns:
+        Server-Sent Events (SSE) 流式响应
+    """
+    async def generate_stream():
+        try:
+            async for chunk in service.stream_chat(
+                message=request.message,
+                model=request.model
+            ):
+                # 每个chunk都是JSON格式的数据
+                chunk_data = json.dumps(chunk, ensure_ascii=False)
+                yield f"data: {chunk_data}\n\n"
+                
+        except Exception as e:
+            logger.error(f"Stream chat failed: {e}")
+            error_chunk = {
+                "error": True,
+                "message": str(e),
+                "type": "error"
+            }
+            yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+        finally:
+            # 发送结束标志
+            yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/plain; charset=utf-8"
+        }
+    )
+
+
+@router.post("/chat/stream/multi-turn")
+async def stream_multi_turn_chat(
+    request: MultiTurnChatRequest,
+    service = Depends(get_initialized_demo_service)
+):
+    """
+    流式多轮对话接口
+    
+    Args:
+        request: 多轮对话请求，包含对话历史和模型名称
+        
+    Returns:
+        Server-Sent Events (SSE) 流式响应
+    """
+    async def generate_stream():
+        try:
+            # 验证消息格式
+            for msg in request.messages:
+                if "role" not in msg or "content" not in msg:
+                    error_chunk = {
+                        "error": True,
+                        "message": "Each message must have 'role' and 'content' fields",
+                        "type": "validation_error"
+                    }
+                    yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+                    return
+                if msg["role"] not in ["user", "assistant"]:
+                    error_chunk = {
+                        "error": True,
+                        "message": "Message role must be 'user' or 'assistant'",
+                        "type": "validation_error"
+                    }
+                    yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+                    return
+            
+            async for chunk in service.stream_multi_turn_chat(
+                messages=request.messages,
+                model=request.model
+            ):
+                # 每个chunk都是JSON格式的数据
+                chunk_data = json.dumps(chunk, ensure_ascii=False)
+                yield f"data: {chunk_data}\n\n"
+                
+        except Exception as e:
+            logger.error(f"Stream multi-turn chat failed: {e}")
+            error_chunk = {
+                "error": True,
+                "message": str(e),
+                "type": "error"
+            }
+            yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+        finally:
+            # 发送结束标志
+            yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/plain; charset=utf-8"
+        }
+    )
 
 
 @router.get("/health")

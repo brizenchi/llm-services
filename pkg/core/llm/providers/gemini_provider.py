@@ -156,10 +156,27 @@ class GeminiClient(BaseLLMClient):
                     config=generation_config
                 )
             
+            # 获取流对象
             stream = await loop.run_in_executor(None, generate_stream)
             
-            # 处理流式响应
-            for chunk in stream:
+            # 处理流式响应 - 需要在 executor 中迭代
+            async def process_stream():
+                def iterate_stream():
+                    chunks = []
+                    try:
+                        for chunk in stream:
+                            chunks.append(chunk)
+                    except Exception as e:
+                        logger.error(f"Error iterating stream: {e}")
+                    return chunks
+                
+                chunks = await loop.run_in_executor(None, iterate_stream)
+                return chunks
+            
+            chunks = await process_stream()
+            
+            # 处理每个chunk
+            for chunk in chunks:
                 try:
                     if hasattr(chunk, 'text') and chunk.text:
                         choice = StreamChoice(
@@ -181,6 +198,25 @@ class GeminiClient(BaseLLMClient):
                 except Exception as e:
                     logger.warning(f"Failed to process stream chunk: {e}")
                     continue
+            
+            # 发送结束信号
+            if chunks:
+                choice = StreamChoice(
+                    delta=Message(
+                        role=MessageRole.ASSISTANT,
+                        content=""
+                    ),
+                    index=0,
+                    finish_reason="stop"
+                )
+                
+                yield StreamResponse(
+                    id=f"genai-stream-end",
+                    object="chat.completion.chunk",
+                    created=int(time.time()),
+                    model=request.model,
+                    choices=[choice]
+                )
                     
         except Exception as e:
             logger.error(f"GenAI stream request failed: {e}")

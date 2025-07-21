@@ -56,6 +56,19 @@ def run_full_api_test():
         return False
 
 
+def run_stream_test():
+    """运行流式接口测试"""
+    print("🌊 运行流式接口测试...")
+    try:
+        result = subprocess.run([
+            sys.executable, "tests/api_tests/stream_test.py"
+        ], cwd=project_root, capture_output=False)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"❌ 流式接口测试运行失败: {e}")
+        return False
+
+
 def run_all_tests():
     """运行所有测试"""
     print("🚀 运行所有测试...")
@@ -89,7 +102,7 @@ def run_all_tests():
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="LLM Services 测试运行器")
-    parser.add_argument("command", choices=["unit", "quick", "full", "all"], 
+    parser.add_argument("command", choices=["unit", "quick", "full", "stream", "all"], 
                        help="测试类型")
     parser.add_argument("-m", "--message", help="自定义测试消息（仅用于quick测试）")
     
@@ -101,6 +114,8 @@ def main():
         success = run_quick_api_test(args.message)
     elif args.command == "full":
         success = run_full_api_test()
+    elif args.command == "stream":
+        success = run_stream_test()
     elif args.command == "all":
         success = run_all_tests()
     else:

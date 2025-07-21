@@ -23,7 +23,7 @@ def success_result(data: Any = None, msg: str = "ok", code: int = ErrorCode.SUCC
     """
     return Result(
         code=code,
-        msg=msg,
+        message=msg,
         data=data,
         trace_id=get_trace_id()
     )
@@ -38,7 +38,7 @@ def error_result(msg: str, code: int = ErrorCode.FAIL) -> Result:
     """
     return Result(
         code=code,
-        msg=msg,
+        message=msg,
         data=None,
         trace_id=get_trace_id()
     ) 

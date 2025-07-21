@@ -13,7 +13,7 @@ class Settings:
     # 服务配置
     APP_NAME: str = os.getenv("APP_NAME", "deeper-newsletter")
     DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
-    
+    TOKEN: str = os.getenv("TOKEN", "1234567890")
     # 服务器配置
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))

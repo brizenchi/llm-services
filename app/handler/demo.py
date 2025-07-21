@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
 import os
@@ -17,12 +17,20 @@ class ChatRequest(BaseModel):
     """聊天请求模型"""
     message: str
     model: str = "gemini-2.5-flash"
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description="系统提示词，用于设置AI助手的行为和角色"
+    )
 
 
 class MultiTurnChatRequest(BaseModel):
     """多轮对话请求模型"""
-    messages: List[Dict[str, str]]  # [{"role": "user|assistant", "content": "..."}]
+    messages: List[Dict[str, str]]  # [{"role": "user|assistant|system", "content": "..."}]
     model: str = "gemini-2.5-flash"
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description="系统提示词，如果messages中已包含system role消息则此字段会被忽略"
+    )
 
 
 class StreamChatRequest(BaseModel):
@@ -30,6 +38,10 @@ class StreamChatRequest(BaseModel):
     message: str
     model: str = "gemini-2.5-flash"
     stream: bool = True
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description="系统提示词，用于设置AI助手的行为和角色"
+    )
 
 
 async def get_initialized_demo_service():
@@ -119,7 +131,7 @@ async def chat(
     简单聊天接口
     
     Args:
-        request: 聊天请求，包含消息和模型名称
+        request: 聊天请求，包含消息、模型名称和可选的系统提示词
         
     Returns:
         聊天响应
@@ -127,7 +139,8 @@ async def chat(
     try:
         result = await service.simple_chat(
             message=request.message,
-            model=request.model
+            model=request.model,
+            system_prompt=request.system_prompt
         )
         
         if result["success"]:
@@ -149,7 +162,7 @@ async def multi_turn_chat(
     多轮对话接口
     
     Args:
-        request: 多轮对话请求，包含对话历史和模型名称
+        request: 多轮对话请求，包含对话历史、模型名称和可选的系统提示词
         
     Returns:
         对话响应
@@ -162,15 +175,16 @@ async def multi_turn_chat(
                     status_code=400,
                     detail="Each message must have 'role' and 'content' fields"
                 )
-            if msg["role"] not in ["user", "assistant"]:
+            if msg["role"] not in ["user", "assistant", "system"]:
                 raise HTTPException(
                     status_code=400,
-                    detail="Message role must be 'user' or 'assistant'"
+                    detail="Message role must be 'user', 'assistant' or 'system'"
                 )
         
         result = await service.multi_turn_chat(
             messages=request.messages,
-            model=request.model
+            model=request.model,
+            system_prompt=request.system_prompt
         )
         
         if result["success"]:
@@ -194,7 +208,7 @@ async def stream_chat(
     流式聊天接口
     
     Args:
-        request: 流式聊天请求，包含消息和模型名称
+        request: 流式聊天请求，包含消息、模型名称和可选的系统提示词
         
     Returns:
         Server-Sent Events (SSE) 流式响应
@@ -203,7 +217,8 @@ async def stream_chat(
         try:
             async for chunk in service.stream_chat(
                 message=request.message,
-                model=request.model
+                model=request.model,
+                system_prompt=request.system_prompt
             ):
                 # 每个chunk都是JSON格式的数据
                 chunk_data = json.dumps(chunk, ensure_ascii=False)
@@ -241,7 +256,7 @@ async def stream_multi_turn_chat(
     流式多轮对话接口
     
     Args:
-        request: 多轮对话请求，包含对话历史和模型名称
+        request: 多轮对话请求，包含对话历史、模型名称和可选的系统提示词
         
     Returns:
         Server-Sent Events (SSE) 流式响应
@@ -258,10 +273,10 @@ async def stream_multi_turn_chat(
                     }
                     yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
                     return
-                if msg["role"] not in ["user", "assistant"]:
+                if msg["role"] not in ["user", "assistant", "system"]:
                     error_chunk = {
                         "error": True,
-                        "message": "Message role must be 'user' or 'assistant'",
+                        "message": "Message role must be 'user', 'assistant' or 'system'",
                         "type": "validation_error"
                     }
                     yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
@@ -269,7 +284,8 @@ async def stream_multi_turn_chat(
             
             async for chunk in service.stream_multi_turn_chat(
                 messages=request.messages,
-                model=request.model
+                model=request.model,
+                system_prompt=request.system_prompt
             ):
                 # 每个chunk都是JSON格式的数据
                 chunk_data = json.dumps(chunk, ensure_ascii=False)

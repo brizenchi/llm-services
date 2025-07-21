@@ -62,8 +62,20 @@ class DemoService:
             logger.error(f"Failed to initialize DemoService: {e}")
             raise
     
-    async def simple_chat(self, message: str, model: str = "gemini-2.5-flash") -> Dict[str, Any]:
-        """简单聊天接口"""
+    async def simple_chat(
+        self, 
+        message: str, 
+        model: str = "gemini-2.5-flash",
+        system_prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        简单聊天接口
+        
+        Args:
+            message: 用户消息
+            model: 模型名称
+            system_prompt: 系统提示词，用于设置AI助手的行为和角色
+        """
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
@@ -72,12 +84,20 @@ class DemoService:
             available_models = self.manager.get_all_models()
             logger.info(f"Looking for model {model} in available models: {available_models}")
             
+            # 构建消息列表
+            messages = []
+            
+            # 如果有system prompt，添加到消息列表开头
+            if system_prompt:
+                messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
+            
+            # 添加用户消息
+            messages.append(Message(role=MessageRole.USER, content=message))
+            
             # 创建聊天请求
             request = ChatCompletionRequest(
                 model=model,
-                messages=[
-                    Message(role=MessageRole.USER, content=message)
-                ],
+                messages=messages,
                 max_tokens=1000,
                 temperature=0.7
             )
@@ -89,6 +109,7 @@ class DemoService:
             return {
                 "success": True,
                 "user_message": message,
+                "system_prompt": system_prompt,
                 "model": model,
                 "response": response.choices[0].message.content,
                 "usage": {
@@ -104,19 +125,48 @@ class DemoService:
                 "success": False,
                 "error": str(e),
                 "user_message": message,
+                "system_prompt": system_prompt,
                 "model": model
             }
     
-    async def multi_turn_chat(self, messages: List[Dict[str, str]], model: str = "gemini-2.5-flash") -> Dict[str, Any]:
-        """多轮对话接口"""
+    async def multi_turn_chat(
+        self, 
+        messages: List[Dict[str, str]], 
+        model: str = "gemini-2.5-flash",
+        system_prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        多轮对话接口
+        
+        Args:
+            messages: 对话历史
+            model: 模型名称
+            system_prompt: 系统提示词，如果messages中已包含system role消息则此字段会被忽略
+        """
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
         try:
             # 转换消息格式
             chat_messages = []
+            
+            # 检查是否已有system消息
+            has_system_message = any(msg["role"] == "system" for msg in messages)
+            
+            # 如果提供了system_prompt且消息列表中没有system消息，添加到开头
+            if system_prompt and not has_system_message:
+                chat_messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
+            
+            # 转换其他消息
             for msg in messages:
-                role = MessageRole.USER if msg["role"] == "user" else MessageRole.ASSISTANT
+                if msg["role"] == "user":
+                    role = MessageRole.USER
+                elif msg["role"] == "assistant":
+                    role = MessageRole.ASSISTANT
+                elif msg["role"] == "system":
+                    role = MessageRole.SYSTEM
+                else:
+                    continue  # 跳过未知角色
                 chat_messages.append(Message(role=role, content=msg["content"]))
             
             # 创建聊天请求
@@ -134,6 +184,7 @@ class DemoService:
             return {
                 "success": True,
                 "conversation": messages,
+                "system_prompt": system_prompt if not has_system_message else None,
                 "model": model,
                 "response": response.choices[0].message.content,
                 "usage": {
@@ -149,6 +200,7 @@ class DemoService:
                 "success": False,
                 "error": str(e),
                 "conversation": messages,
+                "system_prompt": system_prompt if not has_system_message else None,
                 "model": model
             }
     
@@ -180,8 +232,20 @@ class DemoService:
                 "error": str(e)
             }
 
-    async def stream_chat(self, message: str, model: str = "gemini-2.5-flash") -> AsyncGenerator[Dict[str, Any], None]:
-        """流式聊天接口"""
+    async def stream_chat(
+        self, 
+        message: str, 
+        model: str = "gemini-2.5-flash",
+        system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式聊天接口
+        
+        Args:
+            message: 用户消息
+            model: 模型名称
+            system_prompt: 系统提示词，用于设置AI助手的行为和角色
+        """
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
@@ -190,12 +254,20 @@ class DemoService:
             available_models = self.manager.get_all_models()
             logger.info(f"Looking for model {model} in available models: {available_models}")
             
+            # 构建消息列表
+            messages = []
+            
+            # 如果有system prompt，添加到消息列表开头
+            if system_prompt:
+                messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
+            
+            # 添加用户消息
+            messages.append(Message(role=MessageRole.USER, content=message))
+            
             # 创建聊天请求
             request = ChatCompletionRequest(
                 model=model,
-                messages=[
-                    Message(role=MessageRole.USER, content=message)
-                ],
+                messages=messages,
                 max_tokens=1000,
                 temperature=0.7,
                 stream=True
@@ -213,6 +285,7 @@ class DemoService:
                 "type": "start",
                 "model": model,
                 "user_message": message,
+                "system_prompt": system_prompt,
                 "timestamp": asyncio.get_event_loop().time()
             }
             
@@ -254,6 +327,7 @@ class DemoService:
                     "total_chunks": chunk_count,
                     "model": model,
                     "user_message": message,
+                    "system_prompt": system_prompt,
                     "timestamp": asyncio.get_event_loop().time()
                 }
             
@@ -263,20 +337,49 @@ class DemoService:
                 "type": "error",
                 "error": str(e),
                 "user_message": message,
+                "system_prompt": system_prompt,
                 "model": model,
                 "timestamp": asyncio.get_event_loop().time()
             }
 
-    async def stream_multi_turn_chat(self, messages: List[Dict[str, str]], model: str = "gemini-2.5-flash") -> AsyncGenerator[Dict[str, Any], None]:
-        """流式多轮对话接口"""
+    async def stream_multi_turn_chat(
+        self, 
+        messages: List[Dict[str, str]], 
+        model: str = "gemini-2.5-flash",
+        system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式多轮对话接口
+        
+        Args:
+            messages: 对话历史
+            model: 模型名称
+            system_prompt: 系统提示词，如果messages中已包含system role消息则此字段会被忽略
+        """
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
         try:
             # 转换消息格式
             chat_messages = []
+            
+            # 检查是否已有system消息
+            has_system_message = any(msg["role"] == "system" for msg in messages)
+            
+            # 如果提供了system_prompt且消息列表中没有system消息，添加到开头
+            if system_prompt and not has_system_message:
+                chat_messages.append(Message(role=MessageRole.SYSTEM, content=system_prompt))
+            
+            # 转换其他消息
             for msg in messages:
-                role = MessageRole.USER if msg["role"] == "user" else MessageRole.ASSISTANT
+                if msg["role"] == "user":
+                    role = MessageRole.USER
+                elif msg["role"] == "assistant":
+                    role = MessageRole.ASSISTANT
+                elif msg["role"] == "system":
+                    role = MessageRole.SYSTEM
+                else:
+                    continue  # 跳过未知角色
                 chat_messages.append(Message(role=role, content=msg["content"]))
             
             # 创建聊天请求
@@ -300,6 +403,7 @@ class DemoService:
                 "type": "start",
                 "model": model,
                 "conversation": messages,
+                "system_prompt": system_prompt if not has_system_message else None,
                 "timestamp": asyncio.get_event_loop().time()
             }
             
@@ -341,6 +445,7 @@ class DemoService:
                     "total_chunks": chunk_count,
                     "model": model,
                     "conversation": messages,
+                    "system_prompt": system_prompt if not has_system_message else None,
                     "timestamp": asyncio.get_event_loop().time()
                 }
             
@@ -350,6 +455,7 @@ class DemoService:
                 "type": "error",
                 "error": str(e),
                 "conversation": messages,
+                "system_prompt": system_prompt if not has_system_message else None,
                 "model": model,
                 "timestamp": asyncio.get_event_loop().time()
             }

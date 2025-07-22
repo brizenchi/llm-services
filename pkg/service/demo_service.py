@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import json
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from pkg.core.llm import (
     LLMAggregator,
@@ -16,6 +17,15 @@ from pkg.core.llm import (
 
 logger = logging.getLogger(__name__)
 
+def format_messages(messages: List[Message]) -> str:
+    """格式化消息列表，使日志更易读"""
+    formatted = []
+    for msg in messages:
+        formatted.append({
+            "role": msg.role,
+            "content": msg.content[:100] + "..." if len(msg.content) > 100 else msg.content
+        })
+    return json.dumps(formatted, indent=2, ensure_ascii=False)
 
 class DemoService:
     """
@@ -61,21 +71,14 @@ class DemoService:
         except Exception as e:
             logger.error(f"Failed to initialize DemoService: {e}")
             raise
-    
+
     async def simple_chat(
         self, 
         message: str, 
         model: str = "gemini-2.5-flash",
         system_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        简单聊天接口
-        
-        Args:
-            message: 用户消息
-            model: 模型名称
-            system_prompt: 系统提示词，用于设置AI助手的行为和角色
-        """
+        """简单聊天接口"""
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
@@ -94,6 +97,11 @@ class DemoService:
             # 添加用户消息
             messages.append(Message(role=MessageRole.USER, content=message))
             
+            # 记录请求信息
+            logger.info(f"\n{'='*50}\n🤖 AI Request:\n"
+                       f"Model: {model}\n"
+                       f"Messages:\n{format_messages(messages)}\n{'='*50}")
+            
             # 创建聊天请求
             request = ChatCompletionRequest(
                 model=model,
@@ -104,7 +112,15 @@ class DemoService:
             
             # 获取客户端
             client = self.manager.get_client_by_model(model)
+            start_time = asyncio.get_event_loop().time()
             response = await client.chat_completion(request)
+            process_time = asyncio.get_event_loop().time() - start_time
+            
+            # 记录响应信息
+            logger.info(f"\n{'='*50}\n🤖 AI Response:\n"
+                       f"Time: {process_time:.2f}s\n"
+                       f"Content: {response.choices[0].message.content}\n"
+                       f"Usage: {json.dumps(response.usage.__dict__, indent=2)}\n{'='*50}")
             
             return {
                 "success": True,
@@ -128,21 +144,14 @@ class DemoService:
                 "system_prompt": system_prompt,
                 "model": model
             }
-    
+
     async def multi_turn_chat(
         self, 
         messages: List[Dict[str, str]], 
         model: str = "gemini-2.5-flash",
         system_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        多轮对话接口
-        
-        Args:
-            messages: 对话历史
-            model: 模型名称
-            system_prompt: 系统提示词，如果messages中已包含system role消息则此字段会被忽略
-        """
+        """多轮对话接口"""
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
@@ -169,6 +178,11 @@ class DemoService:
                     continue  # 跳过未知角色
                 chat_messages.append(Message(role=role, content=msg["content"]))
             
+            # 记录请求信息
+            logger.info(f"\n{'='*50}\n🤖 AI Request:\n"
+                       f"Model: {model}\n"
+                       f"Messages:\n{format_messages(chat_messages)}\n{'='*50}")
+            
             # 创建聊天请求
             request = ChatCompletionRequest(
                 model=model,
@@ -179,7 +193,15 @@ class DemoService:
             
             # 使用 manager 直接获取客户端
             client = self.manager.get_client_by_model(model)
+            start_time = asyncio.get_event_loop().time()
             response = await client.chat_completion(request)
+            process_time = asyncio.get_event_loop().time() - start_time
+            
+            # 记录响应信息
+            logger.info(f"\n{'='*50}\n🤖 AI Response:\n"
+                       f"Time: {process_time:.2f}s\n"
+                       f"Content: {response.choices[0].message.content}\n"
+                       f"Usage: {json.dumps(response.usage.__dict__, indent=2)}\n{'='*50}")
             
             return {
                 "success": True,
@@ -203,34 +225,6 @@ class DemoService:
                 "system_prompt": system_prompt if not has_system_message else None,
                 "model": model
             }
-    
-    async def get_available_models(self) -> Dict[str, Any]:
-        """
-        获取可用模型列表
-        
-        Returns:
-            可用模型信息
-        """
-        if not self._initialized:
-            raise RuntimeError("DemoService not initialized")
-        
-        try:
-            all_models = self.manager.get_all_models()
-            providers = self.manager.get_all_providers()
-            
-            return {
-                "success": True,
-                "providers": list(providers),
-                "models": all_models,
-                "total_models": sum(len(models) for models in all_models.values())
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to get available models: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
 
     async def stream_chat(
         self, 
@@ -238,14 +232,7 @@ class DemoService:
         model: str = "gemini-2.5-flash",
         system_prompt: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        流式聊天接口
-        
-        Args:
-            message: 用户消息
-            model: 模型名称
-            system_prompt: 系统提示词，用于设置AI助手的行为和角色
-        """
+        """流式聊天接口"""
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
@@ -264,6 +251,11 @@ class DemoService:
             # 添加用户消息
             messages.append(Message(role=MessageRole.USER, content=message))
             
+            # 记录请求信息
+            logger.info(f"\n{'='*50}\n🤖 AI Stream Request:\n"
+                       f"Model: {model}\n"
+                       f"Messages:\n{format_messages(messages)}\n{'='*50}")
+            
             # 创建聊天请求
             request = ChatCompletionRequest(
                 model=model,
@@ -279,6 +271,7 @@ class DemoService:
             # 初始化统计
             total_content = ""
             chunk_count = 0
+            start_time = asyncio.get_event_loop().time()
             
             # 发送开始事件
             yield {
@@ -286,7 +279,7 @@ class DemoService:
                 "model": model,
                 "user_message": message,
                 "system_prompt": system_prompt,
-                "timestamp": asyncio.get_event_loop().time()
+                "timestamp": start_time
             }
             
             async for stream_response in client.chat_completion_stream(request):
@@ -321,6 +314,12 @@ class DemoService:
             
             # 如果没有收到finish信号，发送完成事件
             if chunk_count > 0:
+                process_time = asyncio.get_event_loop().time() - start_time
+                logger.info(f"\n{'='*50}\n🤖 AI Stream Response:\n"
+                           f"Time: {process_time:.2f}s\n"
+                           f"Total Chunks: {chunk_count}\n"
+                           f"Content: {total_content}\n{'='*50}")
+                
                 yield {
                     "type": "done",
                     "total_content": total_content,
@@ -348,14 +347,7 @@ class DemoService:
         model: str = "gemini-2.5-flash",
         system_prompt: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        流式多轮对话接口
-        
-        Args:
-            messages: 对话历史
-            model: 模型名称
-            system_prompt: 系统提示词，如果messages中已包含system role消息则此字段会被忽略
-        """
+        """流式多轮对话接口"""
         if not self._initialized:
             raise RuntimeError("DemoService not initialized")
         
@@ -382,6 +374,11 @@ class DemoService:
                     continue  # 跳过未知角色
                 chat_messages.append(Message(role=role, content=msg["content"]))
             
+            # 记录请求信息
+            logger.info(f"\n{'='*50}\n🤖 AI Stream Request:\n"
+                       f"Model: {model}\n"
+                       f"Messages:\n{format_messages(chat_messages)}\n{'='*50}")
+            
             # 创建聊天请求
             request = ChatCompletionRequest(
                 model=model,
@@ -397,6 +394,7 @@ class DemoService:
             # 初始化统计
             total_content = ""
             chunk_count = 0
+            start_time = asyncio.get_event_loop().time()
             
             # 发送开始事件
             yield {
@@ -404,7 +402,7 @@ class DemoService:
                 "model": model,
                 "conversation": messages,
                 "system_prompt": system_prompt if not has_system_message else None,
-                "timestamp": asyncio.get_event_loop().time()
+                "timestamp": start_time
             }
             
             async for stream_response in client.chat_completion_stream(request):
@@ -439,6 +437,12 @@ class DemoService:
             
             # 如果没有收到finish信号，发送完成事件
             if chunk_count > 0:
+                process_time = asyncio.get_event_loop().time() - start_time
+                logger.info(f"\n{'='*50}\n🤖 AI Stream Response:\n"
+                           f"Time: {process_time:.2f}s\n"
+                           f"Total Chunks: {chunk_count}\n"
+                           f"Content: {total_content}\n{'='*50}")
+                
                 yield {
                     "type": "done",
                     "total_content": total_content,
@@ -460,10 +464,8 @@ class DemoService:
                 "timestamp": asyncio.get_event_loop().time()
             }
 
-
 # 全局实例
 _demo_service = None
-
 
 async def get_demo_service() -> DemoService:
     """
@@ -476,7 +478,6 @@ async def get_demo_service() -> DemoService:
     if _demo_service is None:
         _demo_service = DemoService()
     return _demo_service
-
 
 async def initialize_demo_service(gemini_config: Dict[str, Any]) -> None:
     """

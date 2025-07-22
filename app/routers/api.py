@@ -14,4 +14,4 @@ def init_app(app):
     # 注册主路由
     app.include_router(api_router, prefix="/api/v1")
     # 注册中间件
-    register_middleware(app)
+    # register_middleware(app)

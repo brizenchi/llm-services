@@ -133,7 +133,7 @@ class GeminiClient(BaseLLMClient):
         self, 
         request: ChatCompletionRequest
     ) -> AsyncGenerator[StreamResponse, None]:
-        """执行流式聊天完成请求"""
+        """执行流式聊天完成请求，做到真正的边生成边推送"""
         try:
             # 转换消息格式
             contents = self._convert_messages_to_genai_format(request.messages)
@@ -146,50 +146,51 @@ class GeminiClient(BaseLLMClient):
                 thinking_config=types.ThinkingConfig(thinking_budget=0)
             )
             
-            # 在异步上下文中运行同步的流式调用
             loop = asyncio.get_event_loop()
             
-            def generate_stream():
+            def get_stream():
                 return self.client.models.generate_content_stream(
                     model=self.model_name,
                     contents=contents,
                     config=generation_config
                 )
             
-            # 获取流对象
-            stream = await loop.run_in_executor(None, generate_stream)
-            
-            # 处理流式响应 - 需要在 executor 中迭代
-            async def process_stream():
-                def iterate_stream():
-                    chunks = []
-                    try:
-                        for chunk in stream:
-                            chunks.append(chunk)
-                    except Exception as e:
-                        logger.error(f"Error iterating stream: {e}")
-                    return chunks
-                
-                chunks = await loop.run_in_executor(None, iterate_stream)
-                return chunks
-            
-            chunks = await process_stream()
-            
-            # 处理每个chunk
-            for chunk in chunks:
+            # 获取同步生成器
+            stream = await loop.run_in_executor(None, get_stream)
+
+            # 用线程池异步迭代同步生成器
+            def sync_chunk_iter():
+                for chunk in stream:
+                    print("CHUNK", time.time(), chunk.text)
+                    yield chunk
+
+            # 用异步生成器包装同步生成器
+            async def async_stream_wrapper():
+                # 不能直接 for chunk in stream，因为 stream 是同步生成器
+                # 用 run_in_executor 包装每个 next
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    it = iter(sync_chunk_iter())
+                    while True:
+                        chunk = await loop.run_in_executor(executor, lambda: next(it, None))
+                        if chunk is None:
+                            break
+                        yield chunk
+
+            async for chunk in async_stream_wrapper():
                 try:
                     if hasattr(chunk, 'text') and chunk.text:
+                        formatted_text = chunk.text  # 如需格式化可加 format_id_references
                         choice = StreamChoice(
                             delta=Message(
                                 role=MessageRole.ASSISTANT,
-                                content=chunk.text
+                                content=formatted_text
                             ),
                             index=0,
                             finish_reason=None
                         )
-                        
                         yield StreamResponse(
-                            id=f"genai-stream-{hash(chunk.text)}",
+                            id=f"genai-stream-{hash(formatted_text)}",
                             object="chat.completion.chunk",
                             created=int(time.time()),
                             model=request.model,
@@ -198,26 +199,22 @@ class GeminiClient(BaseLLMClient):
                 except Exception as e:
                     logger.warning(f"Failed to process stream chunk: {e}")
                     continue
-            
             # 发送结束信号
-            if chunks:
-                choice = StreamChoice(
-                    delta=Message(
-                        role=MessageRole.ASSISTANT,
-                        content=""
-                    ),
-                    index=0,
-                    finish_reason="stop"
-                )
-                
-                yield StreamResponse(
-                    id=f"genai-stream-end",
-                    object="chat.completion.chunk",
-                    created=int(time.time()),
-                    model=request.model,
-                    choices=[choice]
-                )
-                    
+            choice = StreamChoice(
+                delta=Message(
+                    role=MessageRole.ASSISTANT,
+                    content=""
+                ),
+                index=0,
+                finish_reason="stop"
+            )
+            yield StreamResponse(
+                id=f"genai-stream-end",
+                object="chat.completion.chunk",
+                created=int(time.time()),
+                model=request.model,
+                choices=[choice]
+            )
         except Exception as e:
             logger.error(f"GenAI stream request failed: {e}")
             raise APIError(f"GenAI stream request failed: {e}")
